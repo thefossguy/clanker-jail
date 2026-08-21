@@ -1,0 +1,9 @@
+[package]
+name = "clanker-jail"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only" # https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+
+[dependencies]
+landlock = "0.4.7"
+lexopt = "0.3.2"
