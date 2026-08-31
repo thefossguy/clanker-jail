@@ -65,9 +65,9 @@ impl AccessiblePaths {
         sandbox_permission: ClankerPermissions,
         paths_to_sandbox: &[&str],
     ) {
-        paths_to_sandbox
-            .iter()
-            .for_each(|path_to_sandbox| self.insert_lossy((path_to_sandbox, sandbox_permission)));
+        for path_to_sandbox in paths_to_sandbox {
+            self.insert_lossy((path_to_sandbox, sandbox_permission));
+        }
     }
 
     pub fn contains_key(&self, key: &str) -> bool {
@@ -102,7 +102,7 @@ pub fn jail_the_clanker(clanker_jail_config: &ClankerJailConfig) -> Result<(), B
         let rules: Vec<Result<PathBeneath<PathFd>, RulesetError>> =
             path_beneath_rules(&[path_to_allow], *path_permissions).collect();
         if rules.is_empty() {
-            return Err(format!("Landlock did not jail the path '{}'", path_to_allow).into());
+            return Err(format!("Landlock did not jail the path '{path_to_allow}'").into());
         }
         self_ruleset = self_ruleset.add_rules(rules)?;
     }

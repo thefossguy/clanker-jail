@@ -22,9 +22,14 @@ use std::error::Error;
 
 fn check_landlock_abi_compatibility() -> Result<(), Box<dyn Error>> {
     use landlock::{AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr};
-    match Ruleset::default().set_compatibility(CompatLevel::HardRequirement).handle_access(AccessFs::Truncate).is_ok() {
-        true => Ok(()),
-        false => Err("Landlock LSM's 'truncate' permission from landlock ABI v3 cannot be enforced for this kernel. Please look at <https://docs.kernel.org/userspace-api/landlock.html> for further documentation.".into()),
+    if Ruleset::default()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .handle_access(AccessFs::Truncate)
+        .is_ok()
+    {
+        Ok(())
+    } else {
+        Err("Landlock LSM's 'truncate' permission from landlock ABI v3 cannot be enforced for this kernel. Please look at <https://docs.kernel.org/userspace-api/landlock.html> for further documentation.".into())
     }
 }
 

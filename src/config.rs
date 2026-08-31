@@ -63,7 +63,7 @@ impl fmt::Debug for ClankerPermissionsLevel {
             Self::Write => "read+write",
             Self::Remove => "read+write+remove",
         };
-        write!(f, "{}", clanker_permissions_level_as_str)
+        write!(f, "{clanker_permissions_level_as_str}")
     }
 }
 
@@ -131,38 +131,44 @@ fn print_help() {
 
 fn make_accessible_paths_inner_unstructured(
     user_overrides: &mut AccessiblePaths,
-    specified_path: ffi::OsString,
+    specified_path: &ffi::OsString,
     permission: ClankerPermissions,
 ) -> Result<(), Box<dyn Error>> {
-    match path::absolute(&specified_path) {
-        Ok(specified_absolute_path) => match specified_absolute_path.exists() {
-            true => {
+    match path::absolute(specified_path) {
+        Ok(specified_absolute_path) => {
+            if specified_absolute_path.exists() {
                 user_overrides.insert((specified_absolute_path.display().to_string(), permission));
                 Ok(())
+            } else {
+                Err(format!(
+                    "Could not determine the absolute path for '{}'",
+                    specified_path.display()
+                )
+                .into())
             }
-            false => Err(format!("The path {:?} does not exist", specified_absolute_path).into()),
-        },
+        }
         Err(_) => Err(format!(
-            "Could not determine the absolute path for {:?}",
-            specified_path
+            "Could not determine the absolute path for '{}'",
+            specified_path.display()
         )
         .into()),
     }
 }
 
 fn get_paths_from_env_var(env_var_name: &str) -> Vec<String> {
-    let env_var_value = env::var(env_var_name).unwrap_or_else(|_| "".to_string());
-    match env_var_value.is_empty() {
-        true => Vec::new(),
-        false => env_var_value
+    let env_var_value = env::var(env_var_name).unwrap_or_else(|_| String::new());
+    if env_var_value.is_empty() {
+        Vec::new()
+    } else {
+        env_var_value
             .split(':')
             .filter_map(|path_in_env_var_value| path::absolute(path_in_env_var_value).ok())
             .map(|path_in_env_var_value| path_in_env_var_value.display().to_string())
-            .collect(),
+            .collect()
     }
 }
 
-fn get_default_accessible_paths(local_conf: DefaultAccessiblePathsConfig) -> AccessiblePaths {
+fn get_default_accessible_paths(local_conf: &DefaultAccessiblePathsConfig) -> AccessiblePaths {
     let mut default_accessible_paths = AccessiblePaths::new();
 
     // NixOS
@@ -261,7 +267,7 @@ fn get_default_accessible_paths(local_conf: DefaultAccessiblePathsConfig) -> Acc
         CLANKER_PERMISSIONS_ROX,
         &get_paths_from_env_var("PATH")
             .iter()
-            .map(|path_path| path_path.as_str())
+            .map(String::as_str)
             .collect::<Vec<&str>>(),
     );
 
@@ -270,7 +276,7 @@ fn get_default_accessible_paths(local_conf: DefaultAccessiblePathsConfig) -> Acc
         CLANKER_PERMISSIONS_ROX,
         &get_paths_from_env_var("LD_LIBRARY_PATH")
             .iter()
-            .map(|path_path| path_path.as_str())
+            .map(String::as_str)
             .collect::<Vec<&str>>(),
     );
 
@@ -291,7 +297,7 @@ fn get_default_accessible_paths(local_conf: DefaultAccessiblePathsConfig) -> Acc
 }
 
 fn get_permission_level(
-    sandbox_permissions: &ClankerPermissions,
+    sandbox_permissions: ClankerPermissions,
 ) -> Option<ClankerPermissionsLevel> {
     if sandbox_permissions.contains(landlock::AccessFs::RemoveFile) {
         Some(ClankerPermissionsLevel::Remove)
@@ -309,36 +315,38 @@ fn ensure_sensitive_paths_are_explicitly_allowed(
     sensitive_path_configs: &HashMap<String, ClankerPermissionsLevel>,
 ) -> Result<(), Box<dyn Error>> {
     for (sensitive_path, default_sandbox_permission_level) in sensitive_path_configs {
-        match accessible_paths.contains_key(sensitive_path) {
-            false => continue,
-            true => match accessible_paths.get(sensitive_path) {
-                None => return Err(format!("The sandbox paths HashMap contains the sensitive path '{}' but its permissions could not be fetched. This should NEVER happen.", sensitive_path).into()),
-                Some(current_sandbox_permissions) => match get_permission_level(current_sandbox_permissions) {
-                    None => return Err(format!("Could not determine the permission level for path '{}'. This should NEVER happen.", sensitive_path).into()),
-                    Some(current_sandbox_permission_level) => match *default_sandbox_permission_level >= current_sandbox_permission_level {
-                        true => continue,
-                        false => return Err(format!("'{}' is a sensitive path with '{:?}' permissions, but this wasn't allowed explicitly. Ideally, you should use leaf path(s) to allow. Use `--sensitive-path-config <LEVEL>:<PATH>` to allow it.", sensitive_path, current_sandbox_permission_level).into()),
+        if accessible_paths.contains_key(sensitive_path) {
+            match accessible_paths.get(sensitive_path) {
+                None => return Err(format!("The sandbox paths HashMap contains the sensitive path '{sensitive_path}' but its permissions could not be fetched. This should NEVER happen.").into()),
+                Some(current_sandbox_permissions) => match get_permission_level(*current_sandbox_permissions) {
+                    None => return Err(format!("Could not determine the permission level for path '{sensitive_path}'. This should NEVER happen.").into()),
+                    Some(current_sandbox_permission_level) => {
+                        if *default_sandbox_permission_level <= current_sandbox_permission_level {
+                            return Err(format!("'{sensitive_path}' is a sensitive path with '{current_sandbox_permission_level:?}' permissions, but this wasn't allowed explicitly. Ideally, you should use leaf path(s) to allow. Use `--sensitive-path-config <LEVEL>:<PATH>` to allow it.").into());
+                        }
                     },
                 },
-            },
-        };
+            }
+        }
     }
     Ok(())
 }
 
 pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
+    use lexopt::prelude::*;
+
     let current_working_directory = env::current_dir()?.display().to_string();
 
     let user_home_dir = env::var("HOME")?;
     let tmpdir = env::var("TMPDIR").unwrap_or("/tmp".to_string());
     let xdg_config_home = match env::var("XDG_CONFIG_HOME") {
         Ok(xdg_config_home) => xdg_config_home,
-        Err(_) => format!("{}/.config", user_home_dir),
+        Err(_) => format!("{user_home_dir}/.config"),
     };
     std::fs::create_dir_all(&tmpdir)?;
-    let cargo_home = env::var("CARGO_HOME").unwrap_or_else(|_| format!("{}/.cargo", user_home_dir));
+    let cargo_home = env::var("CARGO_HOME").unwrap_or_else(|_| format!("{user_home_dir}/.cargo"));
     let rustup_home =
-        env::var("RUSTUP_HOME").unwrap_or_else(|_| format!("{}/.rustup", user_home_dir));
+        env::var("RUSTUP_HOME").unwrap_or_else(|_| format!("{user_home_dir}/.rustup"));
 
     unsafe {
         env::set_var("TMPDIR", &tmpdir);
@@ -347,7 +355,7 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
     }
 
     let mut sensitive_path_configs: HashMap<String, ClankerPermissionsLevel> = HashMap::new();
-    [
+    for sensitive_path in [
         "/".to_string(),
         "/etc".to_string(),
         "/root".to_string(),
@@ -357,23 +365,22 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
         "/usr/share/man".to_string(),
         "/var/lib".to_string(),
         "/var/private".to_string(),
-        format!("{}/.aws", user_home_dir),
-        format!("{}/.azure", user_home_dir),
-        format!("{}/.docker", user_home_dir),
-        format!("{}/.gcloud", user_home_dir),
-        format!("{}/.gnupg", user_home_dir),
-        format!("{}/.kube", user_home_dir),
-        format!("{}/.local/share", user_home_dir),
-        format!("{}/.local/state", user_home_dir),
-        format!("{}/.password-store", user_home_dir),
-        format!("{}/.ssh", user_home_dir),
+        format!("{user_home_dir}/.aws"),
+        format!("{user_home_dir}/.azure"),
+        format!("{user_home_dir}/.docker"),
+        format!("{user_home_dir}/.gcloud"),
+        format!("{user_home_dir}/.gnupg"),
+        format!("{user_home_dir}/.kube"),
+        format!("{user_home_dir}/.local/share"),
+        format!("{user_home_dir}/.local/state"),
+        format!("{user_home_dir}/.password-store"),
+        format!("{user_home_dir}/.ssh"),
         user_home_dir.clone(),
         xdg_config_home.clone(),
-    ]
-    .into_iter()
-    .for_each(|sensitive_path| {
+    ] {
         sensitive_path_configs.insert(sensitive_path, ClankerPermissionsLevel::NoPermissions);
-    });
+    }
+
     let mut clanker = None;
     let mut clanker_operands = Vec::new();
     let mut user_overrides = AccessiblePaths::new();
@@ -381,27 +388,27 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
     let mut show_config = false;
     let mut show_config_and_exit = false;
 
-    use lexopt::prelude::*;
     let mut lexopt_parser = lexopt::Parser::from_env();
     while let Some(arg) = lexopt_parser.next()? {
         match arg {
             Long("clanker") => {
                 let specified_clanker = lexopt_parser.value()?;
                 match path::absolute(&specified_clanker) {
-                    Ok(specified_clanker_path) => match specified_clanker_path.exists() {
-                        true => clanker = Some(specified_clanker_path.display().to_string()),
-                        false => {
+                    Ok(specified_clanker_path) => {
+                        if specified_clanker_path.exists() {
+                            clanker = Some(specified_clanker_path.display().to_string());
+                        } else {
                             return Err(format!(
-                                "The clanker path {:?} does not exist",
-                                specified_clanker
+                                "The clanker path '{}' does not exist",
+                                specified_clanker.display()
                             )
                             .into());
                         }
-                    },
+                    }
                     Err(_) => {
                         return Err(format!(
-                            "Could not determine the absolute path for clanker {:?}",
-                            specified_clanker
+                            "Could not determine the absolute path for clanker '{}'",
+                            specified_clanker.display()
                         )
                         .into());
                     }
@@ -412,32 +419,32 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
 
             Long("allow-ro") => make_accessible_paths_inner_unstructured(
                 &mut user_overrides,
-                lexopt_parser.value()?,
+                &lexopt_parser.value()?,
                 CLANKER_PERMISSIONS_RO,
             )?,
             Long("allow-rox") => make_accessible_paths_inner_unstructured(
                 &mut user_overrides,
-                lexopt_parser.value()?,
+                &lexopt_parser.value()?,
                 CLANKER_PERMISSIONS_ROX,
             )?,
             Long("allow-rw") => make_accessible_paths_inner_unstructured(
                 &mut user_overrides,
-                lexopt_parser.value()?,
+                &lexopt_parser.value()?,
                 CLANKER_PERMISSIONS_RW,
             )?,
             Long("allow-rwx") => make_accessible_paths_inner_unstructured(
                 &mut user_overrides,
-                lexopt_parser.value()?,
+                &lexopt_parser.value()?,
                 CLANKER_PERMISSIONS_RWX,
             )?,
             Long("allow-rw-rm") => make_accessible_paths_inner_unstructured(
                 &mut user_overrides,
-                lexopt_parser.value()?,
+                &lexopt_parser.value()?,
                 CLANKER_PERMISSIONS_RW_RM,
             )?,
             Long("allow-rwx-rm") => make_accessible_paths_inner_unstructured(
                 &mut user_overrides,
-                lexopt_parser.value()?,
+                &lexopt_parser.value()?,
                 CLANKER_PERMISSIONS_RWX_RM,
             )?,
 
@@ -450,8 +457,8 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
                 match path::absolute(specified_path_to_sandbox) {
                     Err(_) => {
                         return Err(format!(
-                            "Could not determine the absolute path for '{}'",
-                            specified_path_to_sandbox
+                            "Could not determine the absolute path for '{specified_path_to_sandbox}'",
+
                         )
                         .into());
                     }
@@ -459,8 +466,7 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
                         match ClankerPermissionsLevel::from_str(specified_sandbox_level) {
                             None => {
                                 return Err(format!(
-                                    "Unknown permission level '{}'",
-                                    specified_sandbox_level
+                                    "Unknown permission level '{specified_sandbox_level}'"
                                 )
                                 .into());
                             }
@@ -495,12 +501,11 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
         }
     }
 
-    let clanker = match clanker {
-        Some(clanker) => clanker,
-        None => return Err("`--clanker` is a mandatory option".into()),
+    let Some(clanker) = clanker else {
+        return Err("`--clanker` is a mandatory option".into());
     };
 
-    let mut accessible_paths = get_default_accessible_paths(DefaultAccessiblePathsConfig {
+    let mut accessible_paths = get_default_accessible_paths(&DefaultAccessiblePathsConfig {
         cargo_home,
         clanker: clanker.clone(),
         current_working_directory,
@@ -510,7 +515,7 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
         xdg_config_home,
     });
     user_overrides.into_iter().for_each(|accessible_path| {
-        accessible_paths.insert((accessible_path.0, accessible_path.1))
+        accessible_paths.insert((accessible_path.0, accessible_path.1));
     });
 
     ensure_sensitive_paths_are_explicitly_allowed(&accessible_paths, &sensitive_path_configs)?;
@@ -523,7 +528,7 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
     };
 
     if show_config {
-        eprintln!("{:#?}", clanker_jail_config);
+        eprintln!("{clanker_jail_config:#?}");
         if show_config_and_exit {
             std::process::exit(0);
         }
