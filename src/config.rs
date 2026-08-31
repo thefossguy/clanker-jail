@@ -212,10 +212,13 @@ fn get_default_accessible_paths(local_conf: DefaultAccessiblePathsConfig) -> Acc
     default_accessible_paths.insert_lossy((&local_conf.rustup_home, CLANKER_PERMISSIONS_ROX));
 
     // Neovim
-    default_accessible_paths.insert_lossy((
-        format!("{}/nvim", local_conf.xdg_config_home).as_str(),
+    default_accessible_paths.extend_lossy(
         CLANKER_PERMISSIONS_RO,
-    ));
+        &[
+            "/usr/share/nvim", // required on non-NixOS
+            format!("{}/nvim", local_conf.xdg_config_home).as_str(),
+        ],
+    );
 
     // tmux
     default_accessible_paths.extend_lossy(
@@ -348,6 +351,10 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
         "/".to_string(),
         "/etc".to_string(),
         "/root".to_string(),
+        "/usr/share/doc".to_string(),
+        "/usr/share/info".to_string(),
+        "/usr/share/locale".to_string(),
+        "/usr/share/man".to_string(),
         "/var/lib".to_string(),
         "/var/private".to_string(),
         format!("{}/.aws", user_home_dir),
