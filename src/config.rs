@@ -35,6 +35,7 @@ struct DefaultAccessiblePathsConfig {
     tmpdir: String,
     user_home_dir: String,
     xdg_config_home: String,
+    xdg_data_home: String,
 }
 
 #[derive(PartialEq, PartialOrd)]
@@ -226,6 +227,21 @@ fn get_default_accessible_paths(local_conf: &DefaultAccessiblePathsConfig) -> Ac
         ],
     );
 
+    // git-adjacent CLIs
+    default_accessible_paths.extend_lossy(
+        CLANKER_PERMISSIONS_RO,
+        &[
+            // forgejo
+            format!("{}/forgejo-cli", local_conf.xdg_data_home).as_str(),
+            // github
+            format!("{}/gh", local_conf.xdg_config_home).as_str(),
+            // gitlab
+            format!("{}/glab-cli", local_conf.xdg_config_home).as_str(),
+            // gitea
+            format!("{}/tea", local_conf.xdg_config_home).as_str(),
+        ],
+    );
+
     // tmux
     default_accessible_paths.extend_lossy(
         CLANKER_PERMISSIONS_RO,
@@ -342,6 +358,10 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
     let xdg_config_home = match env::var("XDG_CONFIG_HOME") {
         Ok(xdg_config_home) => xdg_config_home,
         Err(_) => format!("{user_home_dir}/.config"),
+    };
+    let xdg_data_home = match env::var("XDG_DATA_HOME") {
+        Ok(xdg_config_home) => xdg_config_home,
+        Err(_) => format!("{user_home_dir}/.local/share"),
     };
     std::fs::create_dir_all(&tmpdir)?;
     let cargo_home = env::var("CARGO_HOME").unwrap_or_else(|_| format!("{user_home_dir}/.cargo"));
@@ -513,6 +533,7 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
         tmpdir,
         user_home_dir: user_home_dir.clone(),
         xdg_config_home,
+        xdg_data_home,
     });
     user_overrides.into_iter().for_each(|accessible_path| {
         accessible_paths.insert((accessible_path.0, accessible_path.1));
