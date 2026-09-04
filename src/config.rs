@@ -337,7 +337,7 @@ fn ensure_sensitive_paths_are_explicitly_allowed(
                 Some(current_sandbox_permissions) => match get_permission_level(*current_sandbox_permissions) {
                     None => return Err(format!("Could not determine the permission level for path '{sensitive_path}'. This should NEVER happen.").into()),
                     Some(current_sandbox_permission_level) => {
-                        if *default_sandbox_permission_level <= current_sandbox_permission_level {
+                        if *default_sandbox_permission_level < current_sandbox_permission_level {
                             return Err(format!("'{sensitive_path}' is a sensitive path with '{current_sandbox_permission_level:?}' permissions, but this wasn't allowed explicitly. Ideally, you should use leaf path(s) to allow. Use `--sensitive-path-config <LEVEL>:<PATH>` to allow it.").into());
                         }
                     },
