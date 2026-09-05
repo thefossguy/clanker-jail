@@ -360,7 +360,7 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
         Err(_) => format!("{user_home_dir}/.config"),
     };
     let xdg_data_home = match env::var("XDG_DATA_HOME") {
-        Ok(xdg_config_home) => xdg_config_home,
+        Ok(xdg_data_home) => xdg_data_home,
         Err(_) => format!("{user_home_dir}/.local/share"),
     };
     std::fs::create_dir_all(&tmpdir)?;
