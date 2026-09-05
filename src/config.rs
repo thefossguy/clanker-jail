@@ -36,6 +36,7 @@ struct DefaultAccessiblePathsConfig {
     user_home_dir: String,
     xdg_config_home: String,
     xdg_data_home: String,
+    xdg_cache_home: String,
 }
 
 #[derive(PartialEq, PartialOrd)]
@@ -174,6 +175,10 @@ fn get_default_accessible_paths(local_conf: &DefaultAccessiblePathsConfig) -> Ac
 
     // NixOS
     default_accessible_paths.insert_lossy(("/nix/store", CLANKER_PERMISSIONS_ROX));
+    default_accessible_paths.insert_lossy((
+        format!("{}/nix", local_conf.xdg_cache_home).as_str(),
+        CLANKER_PERMISSIONS_RW,
+    ));
     // Non-NixOS
     default_accessible_paths.extend_lossy(
         CLANKER_PERMISSIONS_ROX,
@@ -363,6 +368,10 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
         Ok(xdg_data_home) => xdg_data_home,
         Err(_) => format!("{user_home_dir}/.local/share"),
     };
+    let xdg_cache_home = match env::var("XDG_CACHE_HOME") {
+        Ok(xdg_cache_home) => xdg_cache_home,
+        Err(_) => format!("{user_home_dir}/.cache"),
+    };
     std::fs::create_dir_all(&tmpdir)?;
     let cargo_home = env::var("CARGO_HOME").unwrap_or_else(|_| format!("{user_home_dir}/.cargo"));
     let rustup_home =
@@ -534,6 +543,7 @@ pub fn configure_clanker_jail() -> Result<ClankerJailConfig, Box<dyn Error>> {
         user_home_dir: user_home_dir.clone(),
         xdg_config_home,
         xdg_data_home,
+        xdg_cache_home,
     });
     user_overrides.into_iter().for_each(|accessible_path| {
         accessible_paths.insert((accessible_path.0, accessible_path.1));
